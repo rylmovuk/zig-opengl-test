@@ -2,9 +2,17 @@ const std = @import("std");
 const glfw = @import("zglfw");
 const gl = @import("zgl");
 
+pub const opengl_error_handling = .log;
+
+fn glGetProcAddress(p: glfw.GLproc, proc: [:0]const u8) ?gl.binding.FunctionPointer {
+    _ = p;
+    return glfw.getProcAddress(proc);
+}
+
 pub fn main() anyerror!void {
-    var gpa_state = std.heap.GeneralPurposeAllocator(.{}){};
-    const gpa = &gpa_state.allocator;
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer std.debug.assert(gpa.deinit() == .ok);
+    const ally = gpa.allocator();
 
     {
         var maj: i32 = undefined;
@@ -14,25 +22,28 @@ pub fn main() anyerror!void {
         std.log.info("GLFW v{}.{}.{}", .{ maj, min, rev });
     }
 
-    glfw.initHint(.CocoaChdirResources, false);
+    glfw.initHint(glfw.CocoaChdirResources, false);
     try glfw.init();
     defer glfw.terminate();
 
-    glfw.windowHint(.ContextVersionMajor, 3);
-    glfw.windowHint(.ContextVersionMinor, 3);
-    glfw.windowHint(.OpenGLForwardCompat, 1);
-    glfw.windowHint(.CocoaRetinaFramebuffer, 1);
-    glfw.windowHint(.Samples, 4);
-    glfw.windowHint(.OpenGLProfile, @enumToInt(glfw.GLProfileAttribute.OpenglCoreProfile));
-    glfw.windowHint(.Resizable, 1);
+    glfw.windowHint(glfw.ContextVersionMajor, 3);
+    glfw.windowHint(glfw.ContextVersionMinor, 3);
+    glfw.windowHint(glfw.OpenGLForwardCompat, 1);
+    glfw.windowHint(glfw.CocoaRetinaFramebuffer, 1);
+    glfw.windowHint(glfw.Samples, 4);
+    glfw.windowHint(glfw.OpenGLProfile, glfw.OpenGLCoreProfile);
+    glfw.windowHint(glfw.Resizable, 1);
 
-    var window = try glfw.createWindow(800, 640, "Fractal Test", null, null);
+    const window = try glfw.createWindow(800, 640, "Fractal Test", null, null);
     defer glfw.destroyWindow(window);
 
     glfw.makeContextCurrent(window);
     // glfw.swapInterval(1);
 
-    var program = try SimpleProgram.init(gpa, vertex_shader, fragment_shader);
+    const proc: glfw.GLproc = undefined;
+    try gl.binding.load(proc, glGetProcAddress);
+
+    var program = try SimpleProgram.init(ally, vertex_shader, fragment_shader);
     defer program.deinit();
 
     const vao = gl.VertexArray.gen();
@@ -47,7 +58,7 @@ pub fn main() anyerror!void {
 
     // x, y
     gl.enableVertexAttribArray(0);
-    gl.vertexAttribPointer(0, 2, .float, false, @intCast(i32, @sizeOf([2]gl.Float)), 0);
+    gl.vertexAttribPointer(0, 2, .float, false, @intCast(@sizeOf([2]gl.Float)), 0);
 
     const uni_centerOffset = program.prog_handle.uniformLocation("centerOffset");
     const uni_scaleFactor = program.prog_handle.uniformLocation("scaleFactor");
@@ -65,19 +76,19 @@ pub fn main() anyerror!void {
     var time: u64 = 0;
     var lastTime = glfw.getTime();
     while (!glfw.windowShouldClose(window)) : (time += 1) {
-        var curTime = glfw.getTime();
-        if (glfw.getKey(window, glfw.Key.Escape) == glfw.KeyState.Press) {
+        const curTime = glfw.getTime();
+        if (glfw.getKey(window, glfw.KeyEscape) == glfw.Press) {
             glfw.setWindowShouldClose(window, true);
         }
 
         var w: c_int = undefined;
         var h: c_int = undefined;
         glfw.getFramebufferSize(window, &w, &h);
-        const ratio = @intToFloat(f32, w)/@intToFloat(f32, h);
-        gl.viewport(0, 0, @intCast(usize, w), @intCast(usize, h));
+        const ratio = @as(f32, @floatFromInt(w)) / @as(f32, @floatFromInt(h));
+        gl.viewport(0, 0, @intCast(w), @intCast(h));
         gl.clear(.{ .color = true });
 
-        const zoom = 1 + @intToFloat(gl.Float, time)/200;
+        const zoom = 1 + @as(gl.Float, @floatFromInt(time)) / 200;
         gl.uniform2f(uni_scaleFactor, ratio / zoom, 1.0 / zoom);
         gl.uniform2f(uni_centerOffset, 0.5 * 1.1 * zoom, -0.25 * zoom);
         gl.drawArrays(.triangle_fan, 0, vertices.len);
@@ -87,7 +98,7 @@ pub fn main() anyerror!void {
 
         if (curTime - lastTime >= 1.0) {
             var title_buf: [1024]u8 = undefined;
-            const title = std.fmt.bufPrintZ(&title_buf, "Fractal Test : FPS={}", .{time/@floatToInt(u64, curTime)}) catch unreachable;
+            const title = std.fmt.bufPrintZ(&title_buf, "Fractal Test : FPS={}", .{time / @as(u64, @intFromFloat(curTime))}) catch unreachable;
             glfw.setWindowTitle(window, title.ptr);
             lastTime = curTime;
         }
@@ -97,7 +108,7 @@ pub fn main() anyerror!void {
 pub const SimpleProgram = struct {
     prog_handle: gl.Program,
 
-    fn compile(alloc: *std.mem.Allocator, source: []const u8, shader_type: gl.ShaderType) !gl.Shader {
+    fn compile(alloc: std.mem.Allocator, source: []const u8, shader_type: gl.ShaderType) !gl.Shader {
         var shader = gl.Shader.create(shader_type);
         shader.source(1, &source);
         shader.compile();
@@ -107,7 +118,7 @@ pub const SimpleProgram = struct {
 
             const msg = try shader.getCompileLog(alloc);
             defer alloc.free(msg);
-            std.log.emerg("Failed to compile shader (type={s})!\nError: {s}\n", .{ @tagName(shader_type), msg });
+            std.log.err("Failed to compile shader (type={s})!\nError: {s}\n", .{ @tagName(shader_type), msg });
 
             return error.ShaderCompileError;
         }
@@ -116,7 +127,7 @@ pub const SimpleProgram = struct {
     }
 
     pub fn init(
-        alloc: *std.mem.Allocator,
+        alloc: std.mem.Allocator,
         vertex_shader_src: []const u8,
         fragment_shader_src: []const u8,
     ) !SimpleProgram {
@@ -134,14 +145,14 @@ pub const SimpleProgram = struct {
             defer prog.delete();
             const msg = try prog.getCompileLog(alloc);
             defer alloc.free(msg);
-            std.log.emerg("Error occured while linking shader program: {s}\n", .{msg});
+            std.log.err("Error occured while linking shader program: {s}\n", .{msg});
             return error.ShaderLinkError;
         }
         // prog.validate();
         // if (prog.get(.validate_status) == 0) {
         //     const msg = try prog.getCompileLog(alloc);
         //     defer alloc.free(msg);
-        //     std.log.emerg("Shader program could not be validated: {s}\n", .{msg});
+        //     std.log.err("Shader program could not be validated: {s}\n", .{msg});
         //     return error.ShaderInvalid;
         // }
         return SimpleProgram{ .prog_handle = prog };
@@ -156,8 +167,6 @@ pub const SimpleProgram = struct {
         self.prog_handle.use();
     }
 };
-
-
 
 // zig fmt: off
 const vertices = [_][2]gl.Float{

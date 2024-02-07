@@ -1,0 +1,15 @@
+.{
+    .name = "zig-opengl-test",
+    .version = "0.1.0",
+    .paths = .{""},
+    .dependencies = .{
+        .zglfw = .{
+            .url = "https://github.com/rylmovuk/zglfw/archive/d98a2b16bdf471b6bcdded28a377ee9a0c1a78fa.tar.gz",
+            .hash = "1220f53bbe2fdb4415d114c0f14891df762b2f1d2d8f0f16263e57de51e53add20a3",
+        },
+        .zgl = .{
+            .url = "https://github.com/rylmovuk/zgl/archive/b3f9a7042a609a1c6760ce2d5bf61e0d421161bb.tar.gz",
+            .hash = "1220d3a5a48684c1eca114ca29d8becc576eacd0b5c7e604287d6f1c9f2846445d15",
+        },
+    },
+}
